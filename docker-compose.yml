@@ -1,0 +1,19 @@
+services:
+  valkey:
+    image: valkey/valkey:alpine
+    container_name: backend-fight-redis
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: "30MB"
+
+networks:
+  backend:
+  payment-processor:
+    external: true
