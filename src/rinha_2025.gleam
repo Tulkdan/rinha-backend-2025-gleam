@@ -12,19 +12,17 @@ pub fn main() -> Nil {
   let valky = valkyrie.named_connection(valkey_pool_name)
   let worker_pool = processor.create_worker_to_read_messages()
 
-  let assert Ok(a) = worker_pool
-
-  let ctx = server.Context(valkye_conn: valky, worker_subject: a.data)
+  let ctx = server.Context(valkye_conn: valky)
 
   let assert Ok(_) =
     supervisor.new(supervisor.OneForOne)
     |> supervisor.add(valkey_pool)
     |> supervisor.add(web.create_server_supervised(ctx))
-    |> supervisor.add(
-      supervision.worker(fn() { worker_pool })
-      |> supervision.timeout(1000),
-    )
+    |> supervisor.add(supervision.worker(fn() { worker_pool }))
     |> supervisor.start
+
+  let assert Ok(pool) = worker_pool
+  processor.loop_worker(pool.data, valky)
 
   process.sleep_forever()
 }

@@ -35,16 +35,17 @@ pub fn handle_payment_post(req: wisp.Request, ctx: server.Context) {
   use json <- wisp.require_json(req)
   use body <- decode_payment_body(json)
 
-  // let assert Ok(_) =
-  //   echo json.object([
-  //       #("correlationId", json.string(body.correlation_id)),
-  //       #("amount", json.float(body.amount)),
-  //     ])
-  //     |> json.to_string
-  //     |> list.wrap
-  //     |> redis.enqueue_payments(ctx.valkye_conn)
+  let assert Ok(_) =
+    echo json.object([
+        #("correlationId", json.string(body.correlation_id)),
+        #("amount", json.float(body.amount)),
+        #("requestedAt", json.string(birl.now() |> birl.to_iso8601)),
+      ])
+      |> json.to_string
+      |> list.wrap
+      |> redis.enqueue_payments(ctx.valkye_conn)
 
-  actor.send(ctx.worker_subject, processor.Process(body))
+  // actor.send(ctx.worker_subject, processor.Process(body))
 
   wisp.no_content()
 }
