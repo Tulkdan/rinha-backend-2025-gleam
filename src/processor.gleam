@@ -1,68 +1,90 @@
 import birl
-import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/json
+import gleam/option
 import gleam/otp/actor
+import gleam/otp/supervision
 import gleam/result
 import integrations/default
 import integrations/fallback
-import model.{type PaymentRequest, PaymentRequest}
+import model.{PaymentRequest}
 import redis
 import valkyrie
 
-pub type Message {
-  Process(element: PaymentRequest)
+pub type Processor {
+  Processor(
+    redis_conn: valkyrie.Connection,
+    name: option.Option(process.Name(Message)),
+  )
 }
 
-pub fn create_worker_to_read_messages() {
-  let name = process.new_name("worker_process")
+pub type Message {
+  ServerTick
+}
 
-  actor.new(PaymentRequest(
-    amount: 0.0,
-    correlation_id: "",
-    requested_at: birl.now(),
-  ))
-  |> actor.named(name)
-  |> actor.on_message(handle_message)
+pub fn new(conn: valkyrie.Connection) {
+  Processor(redis_conn: conn, name: option.None)
+}
+
+pub fn named(processor: Processor, name: process.Name(Message)) {
+  Processor(..processor, name: option.Some(name))
+}
+
+pub fn start(processor: Processor) {
+  let ac =
+    processor
+    |> actor.new
+    |> actor.on_message(handle_message)
+
+  case processor.name {
+    option.None -> ac
+    option.Some(name) -> ac |> actor.named(name)
+  }
   |> actor.start
 }
 
-fn handle_message(state: PaymentRequest, message: Message) {
+pub fn supervised(processor: Processor) {
+  supervision.supervisor(fn() { start(processor) })
+}
+
+fn handle_message(state: Processor, message: Message) {
   echo "inside on message"
   case message {
-    Process(data) -> {
-      let body_to_send = data |> default.create_body
+    ServerTick -> {
+      case redis.read_queue_payments(state.redis_conn) {
+        "" -> actor.continue(state)
+        data -> {
+          let assert Ok(message) = parse_data_redis(data)
 
-      case default.default_provider_send_request(body_to_send) {
-        Ok(_) -> actor.continue(data)
-        Error(_) -> {
-          echo "failed to make request"
-          case fallback.fallback_provider_send_request(body_to_send) {
-            Ok(_) -> actor.continue(data)
+          let body_to_send = message |> default.create_body
+
+          case default.default_provider_send_request(body_to_send) {
+            Ok(_) -> actor.continue(state)
             Error(_) -> {
               echo "failed to make request"
-              actor.continue(data)
+              case fallback.fallback_provider_send_request(body_to_send) {
+                Ok(_) -> actor.continue(state)
+                Error(_) -> {
+                  echo "failed to make request"
+                  actor.continue(state)
+                }
+              }
             }
           }
+
+          actor.continue(state)
         }
       }
     }
   }
 }
 
-pub fn loop_worker(subject: process.Subject(Message), conn: valkyrie.Connection) {
+pub fn loop_worker(subject: process.Subject(Message)) {
   echo "inside pool"
-  case redis.read_queue_payments(conn) {
-    "" -> Nil
-    data -> {
-      let assert Ok(message) = parse_data_redis(data)
-      process.send(subject, Process(message))
-    }
-  }
-
+  process.send(subject, ServerTick)
   process.sleep(2000)
-  loop_worker(subject, conn)
+  loop_worker(subject)
 }
 
 fn parse_data_redis(message: String) {
