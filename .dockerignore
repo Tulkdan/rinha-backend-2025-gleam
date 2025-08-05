@@ -1,0 +1,9 @@
+.direnv/
+build/
+load-test/
+payment-processor/
+*.hurl
+README.md
+flake.nix
+flake.lock
+docker-compose.yml

@@ -1,7 +1,6 @@
 services:
   valkey:
     image: valkey/valkey:alpine
-    container_name: backend-fight-redis
     restart: unless-stopped
     networks:
       - backend
@@ -12,6 +11,54 @@ services:
         limits:
           cpus: "0.15"
           memory: "30MB"
+    volumes:
+      - redis-data:/data
+
+  api1: &app
+    build:
+      context: .
+    container_name: api1
+    networks:
+      - backend
+      - payment-processor
+    restart: always
+    environment:
+      REDIS_CONN: valkey
+      PROCESSOR: true
+    depends_on:
+      - valkey
+    deploy:
+      resources:
+        limits:
+          cpus: "0.6"
+          memory: "155MB"
+
+  api2:
+    <<: *app
+    environment:
+      REDIS_CONN: valkey
+      PROCESSOR: false
+    container_name: api2
+
+  nginx:
+    image: nginx:1.29.0-alpine
+    volumes:
+      - $PWD/config/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - 9999:9999
+    depends_on:
+      - api1
+      - api2
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: "10MB"
+
+volumes:
+  redis-data:
 
 networks:
   backend:
