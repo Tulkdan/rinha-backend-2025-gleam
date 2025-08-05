@@ -1,13 +1,14 @@
 import birl
+import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
-import gleam/erlang/process
+import gleam/http/response
 import gleam/json
 import gleam/list
-import gleam/otp/actor
+import gleam/string_tree
 import model.{type PaymentRequest, PaymentRequest}
-import processor
 import redis
+import valkyrie/resp
 import web/server
 import wisp
 
@@ -31,21 +32,48 @@ fn decode_payment_body(
   }
 }
 
-pub fn handle_payment_post(req: wisp.Request, ctx: server.Context) {
+pub fn handle_payment_post(
+  req: wisp.Request,
+  ctx: server.Context,
+) -> response.Response(wisp.Body) {
   use json <- wisp.require_json(req)
   use body <- decode_payment_body(json)
 
-  let assert Ok(_) =
-    echo json.object([
-        #("correlationId", json.string(body.correlation_id)),
-        #("amount", json.float(body.amount)),
-        #("requestedAt", json.string(birl.now() |> birl.to_iso8601)),
-      ])
-      |> json.to_string
-      |> list.wrap
-      |> redis.enqueue_payments(ctx.valkye_conn)
+  let data_to_insert =
+    body
+    |> model.to_json
+    |> json.to_string
+    |> list.wrap
 
-  // actor.send(ctx.worker_subject, processor.Process(body))
+  let assert Ok(_) =
+    echo ctx.valkye_conn
+      |> redis.enqueue_payments(data_to_insert)
 
   wisp.no_content()
+}
+
+pub fn get_all_payments(
+  _req: wisp.Request,
+  ctx: server.Context,
+) -> response.Response(wisp.Body) {
+  case redis.get_all_saved_data(ctx.valkye_conn) {
+    Ok(data) -> {
+      let response =
+        data
+        |> dict.values
+        |> list.map(fn(value) {
+          let assert resp.BulkString(v) = value
+          let assert Ok(json_data) = model.from_json_string(v)
+          json_data
+        })
+        |> json.array(of: model.to_json)
+        |> json.to_string_tree
+
+      wisp.ok()
+      |> wisp.json_body(response)
+    }
+    Error(_) ->
+      wisp.no_content()
+      |> wisp.json_body(string_tree.from_string("[]"))
+  }
 }

@@ -1,5 +1,5 @@
-PUT http://localhost:8001/admin/configurations/failure
+PUT http://localhost:8002/admin/configurations/failure
 X-Rinha-Token: 123
 {
-    "failure": true
+    "failure": false
 }

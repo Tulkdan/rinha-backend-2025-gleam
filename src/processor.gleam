@@ -1,14 +1,9 @@
-import birl
-import gleam/dynamic/decode
 import gleam/erlang/process
-import gleam/json
 import gleam/option
 import gleam/otp/actor
 import gleam/otp/supervision
-import gleam/result
-import integrations/default
-import integrations/fallback
-import model.{PaymentRequest}
+import integrations/provider
+import model
 import redis
 import valkyrie
 
@@ -16,6 +11,8 @@ pub type Processor {
   Processor(
     redis_conn: valkyrie.Connection,
     name: option.Option(process.Name(Message)),
+    connections: Int,
+    providers: List(provider.ProviderConfig),
   )
 }
 
@@ -23,12 +20,23 @@ pub type Message {
   ServerTick
 }
 
-pub fn new(conn: valkyrie.Connection) {
-  Processor(redis_conn: conn, name: option.None)
+pub fn new(conn: valkyrie.Connection) -> Processor {
+  Processor(redis_conn: conn, name: option.None, connections: 1, providers: [])
 }
 
-pub fn named(processor: Processor, name: process.Name(Message)) {
+pub fn named(processor: Processor, name: process.Name(Message)) -> Processor {
   Processor(..processor, name: option.Some(name))
+}
+
+pub fn connections(processor: Processor, connections: Int) -> Processor {
+  Processor(..processor, connections: connections)
+}
+
+pub fn providers(
+  processor: Processor,
+  providers: List(provider.ProviderConfig),
+) -> Processor {
+  Processor(..processor, providers: providers)
 }
 
 pub fn start(processor: Processor) {
@@ -49,30 +57,12 @@ pub fn supervised(processor: Processor) {
 }
 
 fn handle_message(state: Processor, message: Message) {
-  echo "inside on message"
   case message {
     ServerTick -> {
       case redis.read_queue_payments(state.redis_conn) {
         "" -> actor.continue(state)
         data -> {
-          let assert Ok(message) = parse_data_redis(data)
-
-          let body_to_send = message |> default.create_body
-
-          case default.default_provider_send_request(body_to_send) {
-            Ok(_) -> actor.continue(state)
-            Error(_) -> {
-              echo "failed to make request"
-              case fallback.fallback_provider_send_request(body_to_send) {
-                Ok(_) -> actor.continue(state)
-                Error(_) -> {
-                  echo "failed to make request"
-                  actor.continue(state)
-                }
-              }
-            }
-          }
-
+          process.spawn(fn() { integrate_data(state, data) })
           actor.continue(state)
         }
       }
@@ -81,27 +71,45 @@ fn handle_message(state: Processor, message: Message) {
 }
 
 pub fn loop_worker(subject: process.Subject(Message)) {
-  echo "inside pool"
   process.send(subject, ServerTick)
   process.sleep(2000)
   loop_worker(subject)
 }
 
-fn parse_data_redis(message: String) {
-  echo message
-  let parse = {
-    use amount <- decode.field("amount", decode.float)
-    use correlation_id <- decode.field("correlationId", decode.string)
-    use requested_at <- decode.field("requestedAt", decode.string)
-
-    decode.success(PaymentRequest(
-      amount: amount,
-      correlation_id: correlation_id,
-      requested_at: requested_at
-        |> birl.parse
-        |> result.unwrap(birl.now()),
-    ))
+fn integrations(
+  providers: List(provider.ProviderConfig),
+  body: String,
+) -> Result(Bool, Bool) {
+  case providers {
+    [] -> Error(False)
+    [provider, ..rest] -> {
+      echo "Trying provider -> " <> provider.url
+      case provider.send_request(provider, body) {
+        Ok(_) -> Ok(True)
+        _ -> integrations(rest, body)
+      }
+    }
   }
+}
 
-  json.parse(message, parse)
+fn integrate_data(processor: Processor, data: String) {
+  echo "Trying to integrate " <> data
+  let assert Ok(message) = model.from_json_string(data)
+
+  let body_to_send = message |> provider.create_body
+
+  case integrations(processor.providers, body_to_send) {
+    Error(_) -> {
+      echo "Failed, reenqueuing it"
+
+      processor.redis_conn
+      |> redis.enqueue_payments([data])
+    }
+    Ok(_) -> {
+      echo "Success, saving it"
+
+      processor.redis_conn
+      |> redis.save_data(message |> model.to_dict)
+    }
+  }
 }

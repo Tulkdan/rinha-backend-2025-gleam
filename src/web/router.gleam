@@ -14,7 +14,7 @@ pub fn handle_request(req: wisp.Request, ctx: server.Context) -> wisp.Response {
     }
     ["payments-summary"] -> {
       use <- wisp.require_method(req, http.Get)
-      todo
+      payment_controller.get_all_payments(req, ctx)
     }
     _ -> wisp.not_found()
   }

@@ -7,6 +7,10 @@ import gleam/json
 import gleam/result
 import model
 
+pub type ProviderConfig {
+  ProviderConfig(url: String)
+}
+
 pub fn create_body(body: model.PaymentRequest) -> String {
   json.object([
     #("correlationId", json.string(body.correlation_id)),
@@ -16,8 +20,8 @@ pub fn create_body(body: model.PaymentRequest) -> String {
   |> json.to_string
 }
 
-pub fn default_provider_send_request(body: String) {
-  let assert Ok(request) = request.to("http://localhost:8001/payments")
+pub fn send_request(provider: ProviderConfig, body: String) {
+  let assert Ok(request) = request.to(provider.url <> "/payments")
 
   use response <- result.try(
     request
