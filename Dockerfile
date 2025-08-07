@@ -6,6 +6,8 @@ WORKDIR /app
 # Copy source code
 COPY . .
 
+EXPOSE 8000
+
 # Install dependencies
 RUN gleam deps download
 

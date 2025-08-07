@@ -24,21 +24,26 @@ services:
     restart: always
     environment:
       REDIS_CONN: valkey
-      PROCESSOR: true
+      PROVIDERS: "http://payment-processor-default:8080,http://payment-processor-fallback:8080"
     depends_on:
       - valkey
     deploy:
       resources:
         limits:
-          cpus: "0.6"
-          memory: "155MB"
+          cpus: "0.9"
+          memory: "255MB"
 
   api2:
     <<: *app
     environment:
       REDIS_CONN: valkey
-      PROCESSOR: false
+      PROVIDERS:
     container_name: api2
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: "55MB"
 
   nginx:
     image: nginx:1.29.0-alpine
