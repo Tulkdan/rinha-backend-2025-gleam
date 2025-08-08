@@ -1,2 +1,2 @@
-POST http://localhost:8002/admin/purge-payments
+POST http://localhost:8001/admin/purge-payments
 X-Rinha-Token: 123

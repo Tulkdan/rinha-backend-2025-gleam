@@ -11,5 +11,6 @@ pub fn create_server_supervised(ctx: server.Context) {
   |> wisp_mist.handler("secret")
   |> mist.new
   |> mist.port(8000)
+  |> mist.bind("0.0.0.0")
   |> mist.supervised
 }
