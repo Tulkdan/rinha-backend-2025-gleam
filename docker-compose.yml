@@ -9,7 +9,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.15"
+          cpus: "0.1"
           memory: "30MB"
     volumes:
       - redis-data:/data
@@ -25,20 +25,22 @@ services:
     environment:
       REDIS_CONN: valkey
       PROVIDERS: "http://payment-processor-default:8080,http://payment-processor-fallback:8080"
+      PROCESSOR_QTT: 1
+      PROCESSOR_TIME: 50
     depends_on:
       - valkey
     deploy:
       resources:
         limits:
-          cpus: "0.9"
+          cpus: "1"
           memory: "255MB"
 
   api2:
     <<: *app
+    container_name: api2
     environment:
       REDIS_CONN: valkey
       PROVIDERS:
-    container_name: api2
     deploy:
       resources:
         limits:
@@ -59,7 +61,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.15"
+          cpus: "0.1"
           memory: "10MB"
 
 volumes:
@@ -67,5 +69,6 @@ volumes:
 
 networks:
   backend:
+    driver: bridge
   payment-processor:
     external: true

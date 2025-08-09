@@ -15,7 +15,7 @@ pub fn create_supervised_pool(host: String) {
     valkyrie.default_config()
       |> valkyrie.host(host)
       |> valkyrie.supervised_pool(
-        size: 10_000,
+        size: 100_000,
         name: option.Some(name),
         timeout: default_timeout,
       ),

@@ -1,8 +1,8 @@
+import gleam/bool
 import gleam/erlang/process
 import gleam/option
 import gleam/otp/actor
 import gleam/otp/supervision
-import gleam/string
 import integrations/provider
 import models/payment_request
 import redis
@@ -12,25 +12,31 @@ pub type Processor {
   Processor(
     redis_conn: valkyrie.Connection,
     name: option.Option(process.Name(Message)),
-    connections: Int,
     providers: List(provider.ProviderConfig),
+    selected_provider: provider.ProviderConfig,
   )
 }
 
 pub type Message {
   ServerTick
+  HealthCheck
 }
 
 pub fn new(conn: valkyrie.Connection) -> Processor {
-  Processor(redis_conn: conn, name: option.None, connections: 1, providers: [])
+  Processor(
+    redis_conn: conn,
+    name: option.None,
+    providers: [],
+    selected_provider: provider.ProviderConfig(
+      url: "",
+      min_response_time: -1,
+      name: "",
+    ),
+  )
 }
 
 pub fn named(processor: Processor, name: process.Name(Message)) -> Processor {
   Processor(..processor, name: option.Some(name))
-}
-
-pub fn connections(processor: Processor, connections: Int) -> Processor {
-  Processor(..processor, connections: connections)
 }
 
 pub fn providers(
@@ -38,6 +44,13 @@ pub fn providers(
   providers: List(provider.ProviderConfig),
 ) -> Processor {
   Processor(..processor, providers: providers)
+}
+
+fn selected_provider(
+  processor: Processor,
+  provider: provider.ProviderConfig,
+) -> Processor {
+  Processor(..processor, selected_provider: provider)
 }
 
 pub fn start(processor: Processor) {
@@ -60,68 +73,99 @@ pub fn supervised(processor: Processor) {
 fn handle_message(state: Processor, message: Message) {
   case message {
     ServerTick -> {
-      case redis.read_queue_payments(state.redis_conn) {
-        "" -> actor.continue(state)
-        data -> {
-          process.spawn(fn() { integrate_data(state, data) })
-          actor.continue(state)
+      process.spawn(fn() {
+        case redis.read_queue_payments(state.redis_conn) {
+          "" -> Nil
+          data -> {
+            let _ = case integrate_data(state, data) {
+              Error(_) ->
+                state.redis_conn
+                |> redis.enqueue_payments([data])
+              Ok(message) ->
+                state.redis_conn
+                |> redis.save_data(message)
+            }
+            Nil
+          }
         }
-      }
+      })
+
+      actor.continue(state)
+    }
+    HealthCheck -> {
+      echo "Healthcheck"
+      let provider =
+        get_faster_healthcheck(state.providers, state.selected_provider)
+
+      state
+      |> selected_provider(provider)
+      |> actor.continue
     }
   }
 }
 
-pub fn loop_worker(subject: process.Subject(Message)) {
+pub fn loop_worker(subject: process.Subject(Message), processor_time: Int) {
   process.send(subject, ServerTick)
-  process.sleep(200)
-  loop_worker(subject)
+  process.sleep(processor_time)
+  loop_worker(subject, processor_time)
 }
 
-fn integrations(
-  providers: List(provider.ProviderConfig),
-  body: String,
-) -> Result(provider.ProviderConfig, Bool) {
-  case providers {
-    [] -> Error(False)
-    [provider, ..rest] -> {
-      echo "Trying provider -> " <> provider.url
-      case provider.send_request(provider, body) {
-        Ok(_) -> Ok(provider)
-        _ -> integrations(rest, body)
-      }
-    }
-  }
+pub fn loop_healthcheck(subject: process.Subject(Message)) {
+  process.send(subject, HealthCheck)
+  process.sleep(5000)
+  loop_healthcheck(subject)
 }
 
 fn integrate_data(processor: Processor, data: String) {
-  echo "Trying to integrate " <> data
   let assert Ok(message) = payment_request.from_json_string(data)
 
   let body_to_send = message |> provider.create_body
 
-  case integrations(processor.providers, body_to_send) {
-    Error(_) -> {
-      echo "Failed, reenqueuing it"
-
-      processor.redis_conn
-      |> redis.enqueue_payments([data])
+  echo "Sending request to " <> processor.selected_provider.url
+  case provider.send_request(processor.selected_provider, body_to_send) {
+    Ok(_) -> {
+      message
+      |> payment_request.set_provider(processor.selected_provider.name)
+      |> payment_request.to_dict
+      |> Ok
     }
-    Ok(provider_processed) -> {
-      echo "Success, saving it"
+    _ -> Error(Nil)
+  }
+}
 
-      let save_provider = case
-        string.contains(provider_processed.url, contain: "default")
-      {
-        True -> "default"
-        _ -> "fallback"
+fn get_faster_healthcheck(
+  providers: List(provider.ProviderConfig),
+  acc: provider.ProviderConfig,
+) -> provider.ProviderConfig {
+  case providers {
+    [] -> acc
+    [provider, ..rest] ->
+      case provider.health_check(provider) {
+        Error(_) -> acc
+        Ok(data) -> {
+          use <- bool.lazy_guard(when: acc.url == "", return: fn() {
+            get_faster_healthcheck(
+              rest,
+              provider.ProviderConfig(
+                ..provider,
+                min_response_time: data.min_response_time,
+              ),
+            )
+          })
+
+          use <- bool.lazy_guard(
+            when: acc.min_response_time <= data.min_response_time,
+            return: fn() { get_faster_healthcheck(rest, acc) },
+          )
+
+          get_faster_healthcheck(
+            rest,
+            provider.ProviderConfig(
+              ..provider,
+              min_response_time: data.min_response_time,
+            ),
+          )
+        }
       }
-
-      processor.redis_conn
-      |> redis.save_data(
-        message
-        |> payment_request.set_provider(save_provider)
-        |> payment_request.to_dict,
-      )
-    }
   }
 }
