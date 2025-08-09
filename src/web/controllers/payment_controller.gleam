@@ -57,6 +57,17 @@ pub fn handle_payment_post(
   wisp.no_content()
 }
 
+fn get_all_payments_response(
+  default: count_provider.CountProvider,
+  fallback: count_provider.CountProvider,
+) -> json.Json {
+  [
+    #("default", count_provider.to_json(default)),
+    #("fallback", count_provider.to_json(fallback)),
+  ]
+  |> json.object
+}
+
 pub fn get_all_payments(
   req: wisp.Request,
   ctx: server.Context,
@@ -74,14 +85,26 @@ pub fn get_all_payments(
 
   use <- bool.guard(
     when: !dict.has_key(params, "from"),
-    return: wisp.bad_request()
-      |> wisp.json_body(string_tree.from_string("Needs query params 'from'")),
+    return: wisp.ok()
+      |> wisp.json_body(
+        get_all_payments_response(
+          count_provider.new("default"),
+          count_provider.new("fallback"),
+        )
+        |> json.to_string_tree,
+      ),
   )
 
   use <- bool.guard(
     when: !dict.has_key(params, "to"),
-    return: wisp.bad_request()
-      |> wisp.json_body(string_tree.from_string("Needs query params 'to'")),
+    return: wisp.ok()
+      |> wisp.json_body(
+        get_all_payments_response(
+          count_provider.new("default"),
+          count_provider.new("fallback"),
+        )
+        |> json.to_string_tree,
+      ),
   )
 
   let assert Ok(from) = dict.get(params, "from")
@@ -134,11 +157,7 @@ pub fn get_all_payments(
 
   wisp.ok()
   |> wisp.json_body(
-    [
-      #("default", count_provider.to_json(default_requests)),
-      #("fallback", count_provider.to_json(fallback_requests)),
-    ]
-    |> json.object
+    get_all_payments_response(default_requests, fallback_requests)
     |> json.to_string_tree,
   )
 }
