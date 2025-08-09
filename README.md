@@ -11,6 +11,10 @@ tambem de realizar a implementacao utilizando o OTP da VM do Erlang
 - Valkey (storage and queue engine)
 - Nginx (load balancer)
 
+## Arquitetura dos supervisores
+
+![architecture](./misc/architecture.png)
+
 ## Melhorias
 
 - Usar mais processadores client para consumir a fila
