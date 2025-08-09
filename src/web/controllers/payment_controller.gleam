@@ -5,6 +5,7 @@ import gleam/dynamic/decode
 import gleam/http/response
 import gleam/json
 import gleam/list
+import gleam/option
 import gleam/string_tree
 import model.{type PaymentRequest, PaymentRequest}
 import redis
@@ -24,6 +25,7 @@ fn decode_payment_body(
       correlation_id: correlation,
       amount: amount,
       requested_at: birl.now(),
+      provider: option.None,
     ))
   }
   case decode.run(body, decoder) {

@@ -2,6 +2,7 @@ import gleam/erlang/process
 import gleam/option
 import gleam/otp/actor
 import gleam/otp/supervision
+import gleam/string
 import integrations/provider
 import model
 import redis
@@ -79,13 +80,13 @@ pub fn loop_worker(subject: process.Subject(Message)) {
 fn integrations(
   providers: List(provider.ProviderConfig),
   body: String,
-) -> Result(Bool, Bool) {
+) -> Result(provider.ProviderConfig, Bool) {
   case providers {
     [] -> Error(False)
     [provider, ..rest] -> {
       echo "Trying provider -> " <> provider.url
       case provider.send_request(provider, body) {
-        Ok(_) -> Ok(True)
+        Ok(_) -> Ok(provider)
         _ -> integrations(rest, body)
       }
     }
@@ -105,11 +106,22 @@ fn integrate_data(processor: Processor, data: String) {
       processor.redis_conn
       |> redis.enqueue_payments([data])
     }
-    Ok(_) -> {
+    Ok(provider_processed) -> {
       echo "Success, saving it"
 
+      let save_provider = case
+        string.contains(provider_processed.url, contain: "default")
+      {
+        True -> "default"
+        _ -> "fallback"
+      }
+
       processor.redis_conn
-      |> redis.save_data(message |> model.to_dict)
+      |> redis.save_data(
+        message
+        |> model.set_provider(save_provider)
+        |> model.to_dict,
+      )
     }
   }
 }
