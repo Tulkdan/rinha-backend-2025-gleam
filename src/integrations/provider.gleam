@@ -5,13 +5,13 @@ import gleam/http/response
 import gleam/httpc
 import gleam/json
 import gleam/result
-import model
+import models/payment_request.{type PaymentRequest}
 
 pub type ProviderConfig {
   ProviderConfig(url: String)
 }
 
-pub fn create_body(body: model.PaymentRequest) -> String {
+pub fn create_body(body: PaymentRequest) -> String {
   json.object([
     #("correlationId", json.string(body.correlation_id)),
     #("amount", json.float(body.amount)),

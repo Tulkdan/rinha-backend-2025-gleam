@@ -4,7 +4,7 @@ import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/string
 import integrations/provider
-import model
+import models/payment_request
 import redis
 import valkyrie
 
@@ -73,7 +73,7 @@ fn handle_message(state: Processor, message: Message) {
 
 pub fn loop_worker(subject: process.Subject(Message)) {
   process.send(subject, ServerTick)
-  process.sleep(2000)
+  process.sleep(200)
   loop_worker(subject)
 }
 
@@ -95,7 +95,7 @@ fn integrations(
 
 fn integrate_data(processor: Processor, data: String) {
   echo "Trying to integrate " <> data
-  let assert Ok(message) = model.from_json_string(data)
+  let assert Ok(message) = payment_request.from_json_string(data)
 
   let body_to_send = message |> provider.create_body
 
@@ -119,8 +119,8 @@ fn integrate_data(processor: Processor, data: String) {
       processor.redis_conn
       |> redis.save_data(
         message
-        |> model.set_provider(save_provider)
-        |> model.to_dict,
+        |> payment_request.set_provider(save_provider)
+        |> payment_request.to_dict,
       )
     }
   }

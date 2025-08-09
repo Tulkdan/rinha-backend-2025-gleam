@@ -1,4 +1,5 @@
 import birl
+import gleam/bool
 import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
@@ -6,8 +7,10 @@ import gleam/http/response
 import gleam/json
 import gleam/list
 import gleam/option
+import gleam/order
 import gleam/string_tree
-import model.{type PaymentRequest, PaymentRequest}
+import models/count_provider
+import models/payment_request.{type PaymentRequest, PaymentRequest}
 import redis
 import valkyrie/resp
 import web/server
@@ -43,7 +46,7 @@ pub fn handle_payment_post(
 
   let data_to_insert =
     body
-    |> model.to_json
+    |> payment_request.to_json
     |> json.to_string
     |> list.wrap
 
@@ -55,29 +58,89 @@ pub fn handle_payment_post(
 }
 
 pub fn get_all_payments(
-  _req: wisp.Request,
+  req: wisp.Request,
   ctx: server.Context,
 ) -> response.Response(wisp.Body) {
-  case redis.get_all_saved_data(ctx.valkye_conn) {
-    Ok(data) -> {
-      let response =
-        data
-        |> dict.values
-        |> list.map(fn(value) {
-          let assert resp.BulkString(v) = value
-          let assert Ok(json_data) = model.from_json_string(v)
-          json_data
-        })
-        |> json.array(of: model.to_json)
-        |> json.to_string_tree
+  let params =
+    req
+    |> wisp.get_query
+    |> list.map(fn(param) {
+      let #(key, value) = param
+      let assert Ok(v) = value |> birl.parse
 
-      wisp.ok()
-      |> wisp.json_body(response)
-    }
-    Error(_) ->
-      wisp.no_content()
-      |> wisp.json_body(string_tree.from_string("[]"))
+      #(key, v)
+    })
+    |> dict.from_list
+
+  use <- bool.guard(
+    when: !dict.has_key(params, "from"),
+    return: wisp.bad_request()
+      |> wisp.json_body(string_tree.from_string("Needs query params 'from'")),
+  )
+
+  use <- bool.guard(
+    when: !dict.has_key(params, "to"),
+    return: wisp.bad_request()
+      |> wisp.json_body(string_tree.from_string("Needs query params 'to'")),
+  )
+
+  let assert Ok(from) = dict.get(params, "from")
+  let assert Ok(to) = dict.get(params, "to")
+
+  let data_in_redis = case redis.get_all_saved_data(ctx.valkye_conn) {
+    Ok(data) ->
+      data
+      |> dict.values
+      |> list.filter_map(fn(value) {
+        let assert resp.BulkString(v) = value
+        let assert Ok(json_data) = payment_request.from_json_string(v)
+
+        use <- bool.guard(
+          when: birl.compare(json_data.requested_at, from) == order.Lt,
+          return: Error(Nil),
+        )
+        use <- bool.guard(
+          when: birl.compare(json_data.requested_at, to) == order.Gt,
+          return: Error(Nil),
+        )
+
+        Ok(json_data)
+      })
+    Error(_) -> []
   }
+
+  use <- bool.guard(
+    when: data_in_redis == [],
+    return: wisp.no_content()
+      |> wisp.json_body(string_tree.from_string("[]")),
+  )
+
+  let grouped_by_provider =
+    data_in_redis
+    |> list.group(by: fn(data) {
+      case data {
+        payment_request.PaymentRequest(provider: option.Some("default"), ..) ->
+          "default"
+        _ -> "fallback"
+      }
+    })
+
+  let default_requests =
+    count_provider.new("default")
+    |> count_provider.count_provider(grouped_by_provider)
+  let fallback_requests =
+    count_provider.new("fallback")
+    |> count_provider.count_provider(grouped_by_provider)
+
+  wisp.ok()
+  |> wisp.json_body(
+    [
+      #("default", count_provider.to_json(default_requests)),
+      #("fallback", count_provider.to_json(fallback_requests)),
+    ]
+    |> json.object
+    |> json.to_string_tree,
+  )
 }
 
 pub fn purge_payments(
