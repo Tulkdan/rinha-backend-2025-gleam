@@ -9,12 +9,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.1"
+          cpus: "0.15"
           memory: "30MB"
     volumes:
       - redis-data:/data
 
-  api1: &app
+  api1: &app # image: pedrohcorrea/rinha-backend-2025-gleam:latest
     build:
       context: .
     container_name: api1
@@ -25,27 +25,25 @@ services:
     environment:
       REDIS_CONN: valkey
       PROVIDERS: "http://payment-processor-default:8080,http://payment-processor-fallback:8080"
-      PROCESSOR_QTT: 1
-      PROCESSOR_TIME: 50
+      PROCESSOR_TIME: 40
     depends_on:
       - valkey
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: "255MB"
+          cpus: "0.8"
+          memory: "235MB"
 
   api2:
     <<: *app
     container_name: api2
     environment:
       REDIS_CONN: valkey
-      PROVIDERS:
     deploy:
       resources:
         limits:
-          cpus: "0.3"
-          memory: "55MB"
+          cpus: "0.4"
+          memory: "75MB"
 
   nginx:
     image: nginx:1.29.0-alpine
@@ -61,7 +59,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.1"
+          cpus: "0.15"
           memory: "10MB"
 
 volumes:

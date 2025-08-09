@@ -51,8 +51,8 @@ pub fn handle_payment_post(
     |> list.wrap
 
   let assert Ok(_) =
-    echo ctx.valkye_conn
-      |> redis.enqueue_payments(data_to_insert)
+    ctx.valkye_conn
+    |> redis.enqueue_payments(data_to_insert)
 
   wisp.no_content()
 }

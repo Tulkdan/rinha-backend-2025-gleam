@@ -93,7 +93,6 @@ fn handle_message(state: Processor, message: Message) {
       actor.continue(state)
     }
     HealthCheck -> {
-      echo "Healthcheck"
       let provider =
         get_faster_healthcheck(state.providers, state.selected_provider)
 
@@ -121,7 +120,6 @@ fn integrate_data(processor: Processor, data: String) {
 
   let body_to_send = message |> provider.create_body
 
-  echo "Sending request to " <> processor.selected_provider.url
   case provider.send_request(processor.selected_provider, body_to_send) {
     Ok(_) -> {
       message

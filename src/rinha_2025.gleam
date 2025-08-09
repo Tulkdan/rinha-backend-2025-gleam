@@ -3,7 +3,6 @@ import gleam/erlang/process
 import gleam/int
 import gleam/list
 import gleam/otp/static_supervisor as supervisor
-import gleam/otp/supervision
 import gleam/string
 import integrations/provider
 import processor
@@ -18,9 +17,6 @@ pub fn main() -> Nil {
   let providers_env = util.get_env_var("PROVIDERS", "")
   let assert Ok(processor_time) =
     util.get_env_var("PROCESSOR_TIME", "100")
-    |> int.parse
-  let assert Ok(processor_qtt) =
-    util.get_env_var("PROCESSOR_QTT", "0")
     |> int.parse
 
   let providers =
@@ -44,6 +40,18 @@ pub fn main() -> Nil {
     redis.create_supervised_pool(redis_host)
   let valky = valkyrie.named_connection(valkey_pool_name)
 
+  let ctx = server.Context(valkye_conn: valky)
+
+  use <- bool.lazy_guard(when: has_providers == False, return: fn() {
+    let assert Ok(_) =
+      supervisor.new(supervisor.OneForOne)
+      |> supervisor.add(valkey_pool)
+      |> supervisor.add(web.create_server_supervised(ctx))
+      |> supervisor.start
+
+    process.sleep_forever()
+  })
+
   let worker_name = process.new_name("worker_pool")
   let worker_pool_supervised =
     processor.new(valky)
@@ -51,25 +59,17 @@ pub fn main() -> Nil {
     |> processor.providers(providers)
     |> processor.supervised
 
-  let ctx = server.Context(valkye_conn: valky)
-
   let assert Ok(_) =
     supervisor.new(supervisor.OneForOne)
     |> supervisor.add(valkey_pool)
     |> supervisor.add(web.create_server_supervised(ctx))
-    |> create_supervisor_with_processor(worker_pool_supervised, has_providers)
+    |> supervisor.add(worker_pool_supervised)
     |> supervisor.start
 
-  use <- bool.lazy_guard(when: !has_providers, return: process.sleep_forever)
-
-  list.repeat(Nil, processor_qtt)
-  |> list.map(fn(a) {
-    process.spawn(fn() {
-      worker_name
-      |> process.named_subject
-      |> processor.loop_worker(processor_time)
-    })
-    a
+  process.spawn(fn() {
+    worker_name
+    |> process.named_subject
+    |> processor.loop_worker(processor_time)
   })
 
   process.spawn(fn() {
@@ -79,15 +79,4 @@ pub fn main() -> Nil {
   })
 
   process.sleep_forever()
-}
-
-fn create_supervisor_with_processor(
-  manager: supervisor.Builder,
-  processor: supervision.ChildSpecification(process.Subject(processor.Message)),
-  has_processor: Bool,
-) {
-  use <- bool.guard(when: !has_processor, return: manager)
-
-  manager
-  |> supervisor.add(processor)
 }
