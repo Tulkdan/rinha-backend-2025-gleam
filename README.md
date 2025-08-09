@@ -1,24 +1,17 @@
-# rinha_2025
+# Rinha de backend 2025
 
-[![Package Version](https://img.shields.io/hexpm/v/rinha_2025)](https://hex.pm/packages/rinha_2025)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/rinha_2025/)
+Codigo da minha aplicacao em Gleam para a [terceira edição da Rinha de Back-end](https://github.com/zanfranceschi/rinha-de-backend-2025) do @zanfranceschi.
 
-```sh
-gleam add rinha_2025@1
-```
-```gleam
-import rinha_2025
+Esta foi uma tentativa de aprender a utilizar Gleam em um ambiente mais proximo ao comercial e
+tambem de realizar a implementacao utilizando o OTP da VM do Erlang
 
-pub fn main() -> Nil {
-  // TODO: An example of the project in use
-}
-```
+## Tecnologias
 
-Further documentation can be found at <https://hexdocs.pm/rinha_2025>.
+- Gleam (language)
+- Valkey (storage and queue engine)
+- Nginx (load balancer)
 
-## Development
+## Melhorias
 
-```sh
-gleam run   # Run the project
-gleam test  # Run the tests
-```
+- Usar mais processadores client para consumir a fila
+- Utilizar o ETS e remover o Valkey (fazendo a solucao utilizar somente a VM do erlang) (as libs para utilizar o ETS no Gleam estao com a versao do gleam_erlang incompativeis com a versao utilizada no projeto)
