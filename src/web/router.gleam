@@ -16,6 +16,10 @@ pub fn handle_request(req: wisp.Request, ctx: server.Context) -> wisp.Response {
       use <- wisp.require_method(req, http.Get)
       payment_controller.get_all_payments(req, ctx)
     }
+    ["purge-payments"] -> {
+      use <- wisp.require_method(req, http.Post)
+      payment_controller.purge_payments(req, ctx)
+    }
     _ -> wisp.not_found()
   }
 }

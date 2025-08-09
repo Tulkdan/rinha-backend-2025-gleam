@@ -77,3 +77,12 @@ pub fn get_all_payments(
       |> wisp.json_body(string_tree.from_string("[]"))
   }
 }
+
+pub fn purge_payments(
+  _req: wisp.Request,
+  ctx: server.Context,
+) -> response.Response(wisp.Body) {
+  case redis.delete_saved_data(ctx.valkye_conn) {
+    _ -> wisp.no_content()
+  }
+}

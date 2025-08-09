@@ -48,3 +48,8 @@ pub fn get_all_saved_data(conn: valkyrie.Connection) {
   conn
   |> valkyrie.hgetall(default_key, default_timeout)
 }
+
+pub fn delete_saved_data(conn: valkyrie.Connection) {
+  conn
+  |> valkyrie.del([default_key], default_timeout)
+}
